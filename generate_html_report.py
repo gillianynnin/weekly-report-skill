@@ -3,11 +3,11 @@ import json
 import numpy as np
 
 # 读取Excel文件
-file_path = r"C:\Users\gillian.yin\Desktop\agent_test_V0402.xlsx"
+file_path = r"C:\Users\YOUR_USERNAME\Desktop\agent_test_V0402.xlsx"
 df = pd.read_excel(file_path)
 
 # 读取预算配置
-budget_file = r"C:\Users\gillian.yin\data_workspace\03_aiagent\pmtu_budget.json"
+budget_file = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\pmtu_budget.json"
 try:
     with open(budget_file, 'r', encoding='utf-8') as f:
         budget_dict = json.load(f)
@@ -16,7 +16,7 @@ except FileNotFoundError:
     print("警告：未找到预算配置文件，将使用默认值")
 
 # PAC 整体预算（季度目标）
-pac_total_budget = 10000000
+pac_total_budget = 0  # TODO: 填入 PAC 季度目标预算金额
 
 # 提取周数
 df['week_num'] = df['week_number'].str.extract(r'(\d+)').astype(int)
@@ -330,12 +330,12 @@ for _, row in report_df_raw.iterrows():
         'weekly_margins': pmtu_weekly.tolist(),
     })
 
-staging_json = r"C:\Users\gillian.yin\data_workspace\03_aiagent\staging_data.json"
+staging_json = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\staging_data.json"
 with open(staging_json, 'w', encoding='utf-8') as f:
     _json.dump(staging_data, f, ensure_ascii=False, indent=2, cls=_NpEncoder)
 
 # 保存为暂存 HTML（校验通过后由 finalize_report.py 重命名为正式文件）
-output_file = r"C:\Users\gillian.yin\data_workspace\03_aiagent\weekly_report_staging.html"
+output_file = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\weekly_report_staging.html"
 with open(output_file, 'w', encoding='utf-8') as f:
     f.write(f"""
 <!DOCTYPE html>

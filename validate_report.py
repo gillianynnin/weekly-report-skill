@@ -3,14 +3,14 @@ import numpy as np
 import json
 
 # ── 读取原始数据与暂存校验数据 ───────────────────────────────
-excel_path = r"C:\Users\gillian.yin\data_workspace\03_aiagent\_data_source_path.txt"
+excel_path = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\_data_source_path.txt"
 try:
     with open(excel_path, 'r', encoding='utf-8') as f:
         file_path = f.read().strip()
 except FileNotFoundError:
-    file_path = r"C:\Users\gillian.yin\Desktop\agent_test_V0402.xlsx"
+    file_path = r"C:\Users\YOUR_USERNAME\Desktop\agent_test_V0402.xlsx"
 
-staging_json = r"C:\Users\gillian.yin\data_workspace\03_aiagent\staging_data.json"
+staging_json = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\staging_data.json"
 with open(staging_json, 'r', encoding='utf-8') as f:
     staging = json.load(f)
 

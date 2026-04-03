@@ -11,7 +11,7 @@ description: 校验报表数据准确性、完整性、预测模型合理性
 执行以下命令：
 
 ```bash
-python "C:\Users\gillian.yin\data_workspace\03_aiagent\validate_report.py"
+python "C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\validate_report.py"
 ```
 
 ## 步骤二：展示校验结果
@@ -51,7 +51,7 @@ python "C:\Users\gillian.yin\data_workspace\03_aiagent\validate_report.py"
 
 ## 注意事项
 
-- 校验脚本路径：`C:\Users\gillian.yin\data_workspace\03_aiagent\validate_report.py`
+- 校验脚本路径：`C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\validate_report.py`
 - 校验依赖 `staging_data.json` 和原始 Excel 文件
 - 计算准确性采用独立重算方式，允许浮点误差 ±0.01
 - 预测模型校验基于 CV 和趋势百分比规则

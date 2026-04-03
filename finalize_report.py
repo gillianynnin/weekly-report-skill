@@ -2,21 +2,21 @@ import shutil
 import json
 import pandas as pd
 
-staging_html = r"C:\Users\gillian.yin\data_workspace\03_aiagent\weekly_report_staging.html"
-final_html   = r"C:\Users\gillian.yin\data_workspace\03_aiagent\weekly_report.html"
-staging_json = r"C:\Users\gillian.yin\data_workspace\03_aiagent\staging_data.json"
+staging_html = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\weekly_report_staging.html"
+final_html   = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\weekly_report.html"
+staging_json = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\staging_data.json"
 
 # ── 1. 将暂存 HTML 重命名为正式文件 ───────────────────────────
 shutil.copy2(staging_html, final_html)
 print(f"✅ HTML 报表已输出：{final_html}")
 
 # ── 2. 从原始数据 + staging JSON 导出 Excel（保留 BU 分组）──
-excel_path = r"C:\Users\gillian.yin\data_workspace\03_aiagent\_data_source_path.txt"
+excel_path = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\_data_source_path.txt"
 try:
     with open(excel_path, 'r', encoding='utf-8') as f:
         file_path = f.read().strip()
 except FileNotFoundError:
-    file_path = r"C:\Users\gillian.yin\Desktop\agent_test_V0402.xlsx"
+    file_path = r"C:\Users\YOUR_USERNAME\Desktop\agent_test_V0402.xlsx"
 
 with open(staging_json, 'r', encoding='utf-8') as f:
     staging = json.load(f)
@@ -73,7 +73,7 @@ for rec in staging['records']:
 
 excel_df = pd.DataFrame(rows)
 
-output_excel = r"C:\Users\gillian.yin\data_workspace\03_aiagent\weekly_report.xlsx"
+output_excel = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\weekly_report.xlsx"
 with pd.ExcelWriter(output_excel, engine='openpyxl') as writer:
     # 整体汇总 sheet
     excel_df.to_excel(writer, index=False, sheet_name='总览')
