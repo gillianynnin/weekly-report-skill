@@ -20,7 +20,7 @@
 
 2. **配置预算**
    - 编辑 `pmtu_budget.json`，设置各 pmtu 的季度预算
-   - PAC 系列预算在脚本中统一设置（默认 10,000,000）
+   - PAC 系列预算在脚本中统一设置（见 `generate_html_report.py` 中 `pac_total_budget`）
 
 3. **使用命令**
    ```bash
@@ -63,9 +63,9 @@ Excel 文件需包含以下列：
 
 ```json
 {
-  "MTC-Meta": 10455326,
-  "MTC-Tiktok": 4360000,
-  "心VASC-CFC": 4360000,
+  "PMTU-A": 1000000,
+  "PMTU-B": 2000000,
+  "PMTU-C": 500000,
   ...
 }
 ```
@@ -77,7 +77,7 @@ Excel 文件需包含以下列：
 
 打开 `generate_html_report.py`，修改第 18 行：
 ```python
-pac_total_budget = 10000000  # PAC 季度目标
+pac_total_budget = 0  # TODO: 填入 PAC 季度目标预算金额
 ```
 
 ## 📈 报表内容
