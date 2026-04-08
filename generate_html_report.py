@@ -235,6 +235,52 @@ ai_df = ai_df.sort_values(['BU', '_current_margin'], ascending=[True, False])
 ai_df = ai_df.drop(columns=['_current_margin']).reset_index(drop=True)
 ai_html = ai_df.to_html(index=False, border=1, justify='left', escape=False)
 
+# ── 风险预警 ──────────────────────────────────────────────────
+import re as _re
+
+def extract_rate(forecast_str):
+    """从预估完成率字符串中提取数值"""
+    m = _re.search(r'预估完成率\s*([\d.]+)%', forecast_str)
+    return float(m.group(1)) if m else None
+
+risk_rows = []
+for row in ai_rows:
+    rate = extract_rate(row['预估完成率'])
+    if rate is not None and rate < 80:
+        level = '🔴 高风险' if rate < 50 else '🟡 关注'
+        risk_rows.append({'BU': row['BU'], 'pmtu': row['pmtu'], '预估完成率': f"{rate:.1f}%", '风险等级': level})
+
+if risk_rows:
+    risk_rows_sorted = sorted(risk_rows, key=lambda x: float(x['预估完成率'].replace('%', '')))
+    risk_items = ''.join([
+        f'''<tr style="background:{'#fff5f5' if r['风险等级'].startswith('🔴') else '#fffbf0'};">
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['风险等级']}</td>
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['BU']}</td>
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['pmtu']}</td>
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;font-weight:600;color:{'#e74c3c' if r['风险等级'].startswith('🔴') else '#f39c12'};">{r['预估完成率']}</td>
+        </tr>'''
+        for r in risk_rows_sorted
+    ])
+    risk_html = f'''
+    <div style="background:#fff;border-radius:8px;padding:16px 20px;margin-bottom:20px;
+                border-left:4px solid #e74c3c;box-shadow:0 2px 6px rgba(0,0,0,0.07);">
+        <div style="font-size:14px;font-weight:700;color:#c0392b;margin-bottom:12px;">⚠️ 完成率风险预警（预估完成率 &lt; 80%）</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:#fdf2f2;">
+                    <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">风险等级</th>
+                    <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">BU</th>
+                    <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">pmtu</th>
+                    <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">预估完成率</th>
+                </tr>
+            </thead>
+            <tbody>{risk_items}</tbody>
+        </table>
+        <div style="font-size:11px;color:#999;margin-top:10px;">🔴 高风险：预估完成率 &lt; 50%　　🟡 关注：50% ≤ 预估完成率 &lt; 80%</div>
+    </div>'''
+else:
+    risk_html = '<div style="font-size:13px;color:#27ae60;margin-bottom:16px;">✅ 所有 pmtu 预估完成率均 ≥ 80%，暂无风险项。</div>'
+
 # ── 每个 BU 的进度条卡片 ─────────────────────────────────────
 def progress_bar_html(pct, label=''):
     pct_clamped = min(max(pct, 0), 100)
@@ -402,6 +448,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
 
     <h2>AI 视角分析</h2>
     <p class="model-note">📌 备注：预估完成率中所使用的预测模型（指数平滑 / 线性回归 / 加权移动均值）均由算法根据各 pmtu 历史数据的波动性与趋势特征自动选择，无需人工干预。PAC 系列统一采用整体均值法计算。</p>
+    {risk_html}
     <div class="ai-section">
     {ai_html}
     </div>
