@@ -380,7 +380,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
         body {{ font-family: 'Microsoft YaHei', '微软雅黑', 'SimHei', '黑体', Arial, sans-serif; margin: 40px 50px; background: #f5f7fa; color: #2c3e50; line-height: 1.6; }}
         h1 {{ font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; letter-spacing: 0.5px; }}
         h2 {{ font-size: 18px; font-weight: 600; color: #34495e; margin-top: 48px; margin-bottom: 16px; border-left: 4px solid #2e86c1; padding-left: 12px; }}
-        .ytd {{ font-size: 15px; font-weight: 600; color: #2e86c1; background: #eaf4fb; padding: 12px 18px; border-radius: 6px; display: inline-block; margin-bottom: 24px; }}
+        .report-meta {{ font-size: 12px; color: #999; margin-bottom: 20px; }}
         .model-note {{ font-size: 12px; color: #7f8c8d; background: #f4f6f7; border: 1px solid #e5e8ea; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; }}
         table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 28px; }}
         thead th {{ background-color: #2e86c1; color: #fff; padding: 12px 14px; text-align: left; font-weight: 600; font-size: 13.5px; }}
@@ -392,7 +392,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
 </head>
 <body>
     <h1>周度利润分析报表</h1>
-    <p class="ytd">【经营周报】截止 {latest_date}，YTD margin：{ytd_margin:,.0f}</p>
+    <p style="font-size:12px;color:#999;margin-bottom:20px;">报表更新至 {latest_date}</p>
 
     <h2>各 BU Q1 进度总览</h2>
     {bu_summary_html}
