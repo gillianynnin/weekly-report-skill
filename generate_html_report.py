@@ -235,8 +235,26 @@ ai_df = ai_df.sort_values(['BU', '_current_margin'], ascending=[True, False])
 ai_df = ai_df.drop(columns=['_current_margin']).reset_index(drop=True)
 ai_html = ai_df.to_html(index=False, border=1, justify='left', escape=False)
 
-# ── 每个 BU 的总结 ──────────────────────────────────────────
-bu_summary_html = ''
+# ── 每个 BU 的进度条卡片 ─────────────────────────────────────
+def progress_bar_html(pct, label=''):
+    pct_clamped = min(max(pct, 0), 100)
+    if pct < 50:
+        color = '#e74c3c'
+    elif pct < 80:
+        color = '#f39c12'
+    else:
+        color = '#27ae60'
+    return f'''
+        <div style="margin-top:8px;">
+            <div style="display:flex; justify-content:space-between; font-size:12px; color:#7f8c8d; margin-bottom:3px;">
+                <span>{label}</span><span style="font-weight:600;color:{color};">{pct:.1f}%</span>
+            </div>
+            <div style="background:#e8ecef; border-radius:6px; height:10px; overflow:hidden;">
+                <div style="width:{pct_clamped}%; background:{color}; height:100%; border-radius:6px; transition:width 0.4s;"></div>
+            </div>
+        </div>'''
+
+bu_summary_html = '<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:32px;">'
 for bu, bu_group in df.groupby('BU'):
     latest_margin = bu_group[bu_group['week_num'] == latest_week]['total_margin'].sum()
     prev_margin_bu = bu_group[bu_group['week_num'] == prev_week]['total_margin'].sum()
@@ -244,30 +262,44 @@ for bu, bu_group in df.groupby('BU'):
 
     if prev_margin_bu != 0:
         wow = ((latest_margin - prev_margin_bu) / abs(prev_margin_bu)) * 100
-        wow_str = f"环比 W{prev_week:02d} {'增长' if wow >= 0 else '下滑'} {abs(wow):.1f}%"
+        wow_color = '#27ae60' if wow >= 0 else '#e74c3c'
+        wow_str = f'<span style="color:{wow_color};font-weight:600;">{"+" if wow>=0 else ""}{wow:.1f}%</span>'
     else:
-        wow_str = "上周无数据"
+        wow_str = '<span style="color:#95a5a6;">上周无数据</span>'
 
     top_pmtu = (bu_group[bu_group['week_num'] == latest_week]
                 .groupby('pmtu')['total_margin'].sum()
                 .idxmax() if not bu_group[bu_group['week_num'] == latest_week].empty else '—')
 
+    # BU 级别预算 = 各 pmtu 预算加总（PAC 用 pac_total_budget）
     bu_pmtu_list = [p for p in bu_group['pmtu'].unique() if pd.notna(p)]
-    rates = []
+    bu_budget = 0
     for p in bu_pmtu_list:
         if str(p).startswith('PAC-'):
-            rates.append(pac_projected_rate)
-        elif budget_dict.get(p, 0) > 0:
-            p_data = df[df['pmtu'] == p].groupby('week_num')['total_margin'].sum()
-            p_avg = p_data.sum() / len(p_data)
-            p_proj = p_avg * total_weeks_in_quarter
-            rates.append(p_proj / budget_dict[p] * 100)
-    avg_rate = sum(rates) / len(rates) if rates else None
-    rate_str = f"预估平均完成率 {avg_rate:.1f}%" if avg_rate else "暂无预算数据"
+            bu_budget = pac_total_budget  # PAC 整体共用一个预算
+            break
+        else:
+            bu_budget += budget_dict.get(p, 0)
 
-    summary = (f"W{latest_week:02d} 本周 margin {latest_margin:,.0f}，{wow_str}；"
-               f"YTD 累计 {ytd_bu:,.0f}；主要贡献来自 {top_pmtu}，{rate_str}。")
-    bu_summary_html += f'<p class="bu-summary"><strong>{bu}</strong>：{summary}</p>'
+    if bu_budget > 0:
+        progress_pct = ytd_bu / bu_budget * 100
+        bar = progress_bar_html(progress_pct, f'Q1累计 {ytd_bu:,.0f} / 预算 {bu_budget:,.0f}')
+    else:
+        progress_pct = None
+        bar = f'<div style="font-size:12px;color:#95a5a6;margin-top:8px;">暂无BU预算数据</div>'
+
+    bu_summary_html += f'''
+    <div style="flex:1; min-width:220px; background:#fff; border-radius:10px; padding:16px 20px;
+                box-shadow:0 2px 8px rgba(0,0,0,0.07); border-top:4px solid #2e86c1;">
+        <div style="font-size:15px; font-weight:700; color:#1a1a1a; margin-bottom:10px;">{bu}</div>
+        <div style="font-size:13px; color:#555; line-height:2;">
+            <div>本周 margin：<strong>{latest_margin:,.0f}</strong> &nbsp; 环比 W{prev_week:02d}：{wow_str}</div>
+            <div>主要贡献：<strong>{top_pmtu}</strong></div>
+        </div>
+        {bar}
+    </div>'''
+
+bu_summary_html += '</div>'
 
 # ── 导出 staging_data.json 供校验师比对 ──────────────────────
 import json as _json
@@ -349,7 +381,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
         h1 {{ font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; letter-spacing: 0.5px; }}
         h2 {{ font-size: 18px; font-weight: 600; color: #34495e; margin-top: 48px; margin-bottom: 16px; border-left: 4px solid #2e86c1; padding-left: 12px; }}
         .ytd {{ font-size: 15px; font-weight: 600; color: #2e86c1; background: #eaf4fb; padding: 12px 18px; border-radius: 6px; display: inline-block; margin-bottom: 24px; }}
-        .bu-summary {{ font-size: 14px; line-height: 1.8; color: #34495e; background: #f8f9fa; padding: 12px 16px; border-radius: 5px; margin-bottom: 10px; border-left: 3px solid #95a5a6; }}
+        .model-note {{ font-size: 12px; color: #7f8c8d; background: #f4f6f7; border: 1px solid #e5e8ea; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; }}
         table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 28px; }}
         thead th {{ background-color: #2e86c1; color: #fff; padding: 12px 14px; text-align: left; font-weight: 600; font-size: 13.5px; }}
         td {{ padding: 11px 14px; border-bottom: 1px solid #eaecee; }}
@@ -361,11 +393,15 @@ with open(output_file, 'w', encoding='utf-8') as f:
 <body>
     <h1>周度利润分析报表</h1>
     <p class="ytd">【经营周报】截止 {latest_date}，YTD margin：{ytd_margin:,.0f}</p>
+
+    <h2>各 BU Q1 进度总览</h2>
+    {bu_summary_html}
+
+    <h2>利润分析明细</h2>
     {html_output}
 
     <h2>AI 视角分析</h2>
     <p class="model-note">📌 备注：预估完成率中所使用的预测模型（指数平滑 / 线性回归 / 加权移动均值）均由算法根据各 pmtu 历史数据的波动性与趋势特征自动选择，无需人工干预。PAC 系列统一采用整体均值法计算。</p>
-    {bu_summary_html}
     <div class="ai-section">
     {ai_html}
     </div>
