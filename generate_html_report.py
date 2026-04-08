@@ -283,10 +283,10 @@ for bu, bu_group in df.groupby('BU'):
 
     if bu_budget > 0:
         progress_pct = ytd_bu / bu_budget * 100
-        bar = progress_bar_html(progress_pct, f'Q1累计 {ytd_bu:,.0f} / 预算 {bu_budget:,.0f}')
+        bar = progress_bar_html(progress_pct, f'Q1累计 {ytd_bu:,.0f} / 目标 {bu_budget:,.0f}')
     else:
         progress_pct = None
-        bar = f'<div style="font-size:12px;color:#95a5a6;margin-top:8px;">暂无BU预算数据</div>'
+        bar = f'<div style="font-size:12px;color:#95a5a6;margin-top:8px;">暂无BU目标数据</div>'
 
     bu_summary_html += f'''
     <div style="flex:1; min-width:220px; background:#fff; border-radius:10px; padding:16px 20px;
