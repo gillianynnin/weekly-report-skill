@@ -8,7 +8,7 @@ df_all = pd.read_excel(file_path)
 df_all['accrual_date'] = pd.to_datetime(df_all['accrual_date'])
 df_all['week_num'] = df_all['week_number'].str.extract(r'(\d+)').astype(int)
 
-# 读取预算配置
+# 读取预算配置（历史季度目标，如 Q1 目标）
 budget_file = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\pmtu_budget.json"
 try:
     with open(budget_file, 'r', encoding='utf-8') as f:
@@ -17,8 +17,8 @@ except FileNotFoundError:
     budget_dict = {}
     print("警告：未找到预算配置文件，将使用默认值")
 
-# PAC 整体预算（季度目标）
-pac_total_budget = 0  # TODO: 填入 PAC 季度目标预算金额
+# PAC 整体预算（历史季度目标）
+pac_total_budget = 0  # TODO: 填入 PAC 历史季度目标预算金额
 
 # ── 按 accrual_date 推算所有涉及的季度 ───────────────────────
 def quarter_bounds(date):
@@ -35,7 +35,7 @@ quarter_label = f"Q{current_quarter} {current_year}"
 df_all['_q'] = df_all['accrual_date'].apply(lambda d: (d.year, (d.month - 1) // 3 + 1))
 all_quarters = sorted(df_all['_q'].unique())  # [(year, q), ...]
 
-# 为每个历史季度计算 pmtu 累计 margin
+# 为每个季度计算 pmtu 累计 margin
 def quarter_cumulative(df, year, q):
     qs = pd.Timestamp(year=year, month=(q - 1) * 3 + 1, day=1)
     qe = qs + pd.offsets.QuarterEnd(0)
@@ -74,7 +74,7 @@ for (yr, q) in all_quarters:
     col = f"Q{q} {yr} 进度（{qs.strftime('%m/%d')}~{qe.strftime('%m/%d')}）"
     progress_cols.append(((yr, q), col))
 
-# 当前季度 PAC 整体累计（用于 PAC 进度计算）
+# 当前季度 PAC 整体累计
 cur_pac_cum_series, _, _ = quarter_data[(current_year, current_quarter)]
 pac_cumulative = cur_pac_cum_series[cur_pac_cum_series.index.get_level_values('pmtu').str.startswith('PAC-', na=False)].sum() if not cur_pac_cum_series.empty else 0
 
@@ -86,11 +86,9 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
         week_data = group[group['week_num'] == week]
         margins[week] = week_data['total_margin'].values[0] if not week_data.empty else 0
 
-    # 最新周margin
     current_margin = margins[latest_week]
     row[margin_col] = f"{current_margin:,.0f}"
 
-    # 周比
     prev_margin = margins.get(prev_week, 0)
     if prev_margin != 0:
         week_change = ((current_margin - prev_margin) / prev_margin) * 100
@@ -99,7 +97,7 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
         row[week_compare_col] = f"N/A（W{latest_week:02d}: {current_margin:,.0f} vs W{prev_week:02d}: 0）"
 
     # 各季度进度列
-    progress_pct = None  # 取当前季度的进度用于着色
+    progress_pct = None
     for (yr, q), col in progress_cols:
         cum_series, _, _ = quarter_data[(yr, q)]
         try:
@@ -109,11 +107,18 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
 
         is_current = (yr == current_year and q == current_quarter)
 
-        if pmtu.startswith('PAC-'):
-            # PAC 用整体累计
+        if is_current:
+            # 当前季度尚未配置目标，直接显示累计
+            pct = None
+            if pmtu.startswith('PAC-'):
+                pac_q_cum = cum_series[cum_series.index.get_level_values('pmtu').str.startswith('PAC-', na=False)].sum() if not cum_series.empty else 0
+                row[col] = f"未设目标（累计: {pac_q_cum:,.0f}）"
+            else:
+                row[col] = f"未设目标（累计: {cumulative:,.0f}）"
+        elif pmtu.startswith('PAC-'):
             pac_q_cum = cum_series[cum_series.index.get_level_values('pmtu').str.startswith('PAC-', na=False)].sum() if not cum_series.empty else 0
             pct = (pac_q_cum / pac_total_budget * 100) if pac_total_budget > 0 else None
-            row[col] = f"{pct:.1f}%（PAC整体: {pac_q_cum:,.0f}/{pac_total_budget:,.0f}）" if pct is not None else f"累计: {pac_q_cum:,.0f}"
+            row[col] = f"{pct:.1f}%（PAC整体: {pac_q_cum:,.0f}/{pac_total_budget:,.0f}）" if pct is not None else f"未设目标（累计: {pac_q_cum:,.0f}）"
         else:
             target_value = budget_dict.get(pmtu, 0)
             if target_value > 0:
@@ -133,7 +138,10 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
 # 转换为DataFrame，按BU分组后按margin降序排列
 report_df_raw = pd.DataFrame(report_data)
 report_df_raw = report_df_raw.sort_values(['BU', '_current_margin'], ascending=[True, False])
-all_progress_cols = [col for _, col in progress_cols]
+# 当前季度列优先展示，历史季度列在后
+current_q_cols = [col for (yr, q), col in progress_cols if yr == current_year and q == current_quarter]
+hist_q_cols = [col for (yr, q), col in progress_cols if not (yr == current_year and q == current_quarter)]
+all_progress_cols = current_q_cols + hist_q_cols
 report_df = report_df_raw[['BU', 'pmtu', margin_col, week_compare_col] + all_progress_cols].reset_index(drop=True)
 
 # 进度颜色预警
@@ -166,7 +174,7 @@ html_output = build_colored_table(report_df, progress_pcts, all_progress_cols)
 
 # 计算YTD数据
 ytd_margin = df['total_margin'].sum()
-latest_date = df['week_range'].apply(lambda x: x.split('~')[1].strip()).max()
+latest_date = df_all['accrual_date'].max().strftime('%Y-%m-%d')
 
 # ── 智能预估函数 ──────────────────────────────────────────────
 def smart_forecast(weekly_margins, total_weeks=13):
@@ -206,13 +214,45 @@ def smart_forecast(weekly_margins, total_weeks=13):
 
     return projected, algo
 
-# ── AI 视角分析 ──────────────────────────────────────────────
+# ── 预测分析 ──────────────────────────────────────────────────
 total_weeks_in_quarter = 13
-pac_pmtu_weeks = df[df['pmtu'].str.startswith('PAC-', na=False)].groupby('week_num')['total_margin'].sum().reset_index()
-pac_weeks_elapsed = len(pac_pmtu_weeks)
-pac_avg_weekly = pac_pmtu_weeks['total_margin'].sum() / pac_weeks_elapsed if pac_weeks_elapsed > 0 else 0
-pac_projected_quarter = pac_avg_weekly * total_weeks_in_quarter
-pac_projected_rate = (pac_projected_quarter / pac_total_budget * 100) if pac_total_budget > 0 else 0
+
+# 当前季度和历史季度数据分离
+q2_df = df_all[(df_all['accrual_date'] >= current_qs) & (df_all['accrual_date'] <= current_qe)]
+hist_quarters_sorted = [(yr, q) for (yr, q) in all_quarters if not (yr == current_year and q == current_quarter)]
+prev_q = hist_quarters_sorted[-1] if hist_quarters_sorted else None
+
+# 当前季度 PAC 周数据
+pac_q2_weeks = q2_df[q2_df['pmtu'].str.startswith('PAC-', na=False)].groupby('week_num')['total_margin'].sum().reset_index()
+pac_weeks_elapsed = len(pac_q2_weeks)
+q2_weeks_remaining = max(total_weeks_in_quarter - pac_weeks_elapsed, 0)
+pac_q2_avg = pac_q2_weeks['total_margin'].sum() / pac_weeks_elapsed if pac_weeks_elapsed > 0 else 0
+
+# 历史季度 PAC 周均作为参考
+if prev_q:
+    prev_qs = pd.Timestamp(year=prev_q[0], month=(prev_q[1]-1)*3+1, day=1)
+    prev_qe = prev_qs + pd.offsets.QuarterEnd(0)
+    pac_q1_df = df_all[(df_all['accrual_date'] >= prev_qs) & (df_all['accrual_date'] <= prev_qe) &
+                       df_all['pmtu'].str.startswith('PAC-', na=False)]
+    pac_q1_weekly = pac_q1_df.groupby('week_num')['total_margin'].sum()
+    pac_q1_avg = pac_q1_weekly.mean() if len(pac_q1_weekly) > 0 else 0
+else:
+    pac_q1_avg = 0
+
+# 预估当前季度完成：不足3周时混合历史均值
+pac_q2_actuals = pac_q2_weeks['total_margin'].sum()
+if pac_weeks_elapsed >= 3:
+    pac_projected_quarter, _ = smart_forecast(pac_q2_weeks['total_margin'].tolist(), total_weeks_in_quarter)
+    pac_algo = '智能算法（参考历史季度）'
+elif pac_weeks_elapsed > 0:
+    blended_avg = pac_q2_avg * 0.6 + pac_q1_avg * 0.4
+    pac_projected_quarter = pac_q2_actuals + blended_avg * q2_weeks_remaining
+    pac_algo = '混合均值（当季×0.6 + 历史×0.4）'
+else:
+    pac_projected_quarter = pac_q1_avg * total_weeks_in_quarter
+    pac_algo = '历史季度均值'
+
+pac_projected_rate = (pac_projected_quarter / pac_total_budget * 100) if pac_total_budget > 0 else None
 
 pa_grouped = df.groupby(['BU', 'pmtu', 'pa_name', 'week_num'])['total_margin'].sum().reset_index()
 ai_rows = []
@@ -255,23 +295,41 @@ for (bu, pmtu), group in pa_grouped.groupby(['BU', 'pmtu']):
     down_str = "；".join([fmt_pa(r, False) for _, r in top3_down.iterrows()]) or "无"
     pa_str = f"{up_str}<br>{down_str}"
 
-    # 预估完成率（智能算法）
+    # 预估完成率（当前季度为基准，参考历史季度）
     if pmtu.startswith('PAC-'):
-        forecast_str = f"按当前周均 {pac_avg_weekly:,.0f} 预估季度 {pac_projected_quarter:,.0f}，PAC整体预估完成率 {pac_projected_rate:.1f}%"
-    else:
-        pmtu_weekly = df[df['pmtu'] == pmtu].groupby('week_num')['total_margin'].sum().sort_index()
-        budget = budget_dict.get(pmtu, 0)
-        if len(pmtu_weekly) >= 3:
-            projected, algo = smart_forecast(pmtu_weekly.tolist(), total_weeks_in_quarter)
-            projected_rate = (projected / budget * 100) if budget > 0 else None
-            forecast_str = (f"预估季度 {projected:,.0f}（{algo}），预估完成率 {projected_rate:.1f}%"
-                            if projected_rate else f"预估季度 {projected:,.0f}（{algo}，未设预算）")
+        if pac_projected_rate is not None:
+            forecast_str = f"预估季度 {pac_projected_quarter:,.0f}（{pac_algo}），PAC整体预估完成率 {pac_projected_rate:.1f}%"
         else:
-            avg = pmtu_weekly.mean()
-            projected = avg * total_weeks_in_quarter
-            projected_rate = (projected / budget * 100) if budget > 0 else None
-            forecast_str = (f"预估季度 {projected:,.0f}（均值），预估完成率 {projected_rate:.1f}%"
-                            if projected_rate else f"预估季度 {projected:,.0f}（均值，未设预算）")
+            forecast_str = f"预估季度 {pac_projected_quarter:,.0f}（{pac_algo}，未设预算）"
+    else:
+        pmtu_q2_weekly = q2_df[q2_df['pmtu'] == pmtu].groupby('week_num')['total_margin'].sum().sort_index()
+        pmtu_weeks_elapsed = len(pmtu_q2_weekly)
+        pmtu_weeks_remaining = max(total_weeks_in_quarter - pmtu_weeks_elapsed, 0)
+        budget = budget_dict.get(pmtu, 0)
+
+        if prev_q:
+            pmtu_q1_weekly = df_all[(df_all['accrual_date'] >= prev_qs) & (df_all['accrual_date'] <= prev_qe) &
+                                    (df_all['pmtu'] == pmtu)].groupby('week_num')['total_margin'].sum()
+            q1_avg = pmtu_q1_weekly.mean() if len(pmtu_q1_weekly) > 0 else 0
+        else:
+            q1_avg = 0
+
+        if pmtu_weeks_elapsed >= 3:
+            projected, algo = smart_forecast(pmtu_q2_weekly.tolist(), total_weeks_in_quarter)
+        elif pmtu_weeks_elapsed > 0:
+            q2_avg = pmtu_q2_weekly.mean()
+            blended = q2_avg * 0.6 + q1_avg * 0.4
+            projected = pmtu_q2_weekly.sum() + blended * pmtu_weeks_remaining
+            algo = '当季混合历史均值'
+        else:
+            projected = q1_avg * total_weeks_in_quarter
+            algo = '历史季度均值'
+
+        projected_rate = (projected / budget * 100) if budget > 0 else None
+        if projected_rate is not None:
+            forecast_str = f"预估季度 {projected:,.0f}（{algo}），预估完成率 {projected_rate:.1f}%"
+        else:
+            forecast_str = f"预估季度 {projected:,.0f}（{algo}，未设预算）"
 
     ai_rows.append({
         'BU': bu,
@@ -291,12 +349,11 @@ ai_html = ai_df.to_html(index=False, border=1, justify='left', escape=False)
 import re as _re
 
 def extract_rate(forecast_str):
-    """从预估完成率字符串中提取数值"""
     m = _re.search(r'预估完成率\s*([\d.]+)%', forecast_str)
     return float(m.group(1)) if m else None
 
-weeks_elapsed = latest_week
-weeks_remaining = total_weeks_in_quarter - weeks_elapsed
+weeks_elapsed = pac_weeks_elapsed      # 当前季度已过周数
+weeks_remaining = q2_weeks_remaining   # 当前季度剩余周数
 
 risk_rows = []
 for row in ai_rows:
@@ -304,13 +361,11 @@ for row in ai_rows:
     rate = extract_rate(row['预估完成率'])
     if rate is None:
         continue
-    # 获取该 pmtu 实际数据周数
     if pmtu.startswith('PAC-'):
         pmtu_elapsed = pac_weeks_elapsed
     else:
-        pmtu_elapsed = len(df[df['pmtu'] == pmtu]['week_num'].unique())
+        pmtu_elapsed = len(q2_df[q2_df['pmtu'] == pmtu]['week_num'].unique())
 
-    # 剩余周数紧迫时升级风险
     if rate < 50 or (rate < 80 and weeks_remaining <= 3):
         level = '🔴 高风险'
     elif rate < 80:
@@ -319,7 +374,7 @@ for row in ai_rows:
         continue
 
     urgency = f'<span style="color:#e74c3c;font-weight:600;">仅剩 {weeks_remaining} 周</span>' if weeks_remaining <= 3 else f'剩余 {weeks_remaining} 周'
-    period_str = f'已过 W{pmtu_elapsed:02d} / 共{total_weeks_in_quarter}周，{urgency}'
+    period_str = f'当季已过 {pmtu_elapsed} 周 / 共{total_weeks_in_quarter}周，{urgency}'
     risk_rows.append({
         'BU': row['BU'], 'pmtu': pmtu,
         '预估完成率': rate,
@@ -363,12 +418,7 @@ else:
 # ── 每个 BU 的进度条卡片 ─────────────────────────────────────
 def progress_bar_html(pct, label=''):
     pct_clamped = min(max(pct, 0), 100)
-    if pct < 50:
-        color = '#e74c3c'
-    elif pct < 80:
-        color = '#f39c12'
-    else:
-        color = '#27ae60'
+    color = '#e74c3c' if pct < 50 else ('#f39c12' if pct < 80 else '#27ae60')
     return f'''
         <div style="margin-top:8px;">
             <div style="display:flex; justify-content:space-between; font-size:12px; color:#7f8c8d; margin-bottom:3px;">
@@ -383,7 +433,6 @@ bu_summary_html = '<div style="display:flex; flex-wrap:wrap; gap:16px; margin-bo
 for bu, bu_group in df.groupby('BU'):
     latest_margin = bu_group[bu_group['week_num'] == latest_week]['total_margin'].sum()
     prev_margin_bu = bu_group[bu_group['week_num'] == prev_week]['total_margin'].sum()
-    ytd_bu = bu_group['total_margin'].sum()
 
     if prev_margin_bu != 0:
         wow = ((latest_margin - prev_margin_bu) / abs(prev_margin_bu)) * 100
@@ -396,22 +445,32 @@ for bu, bu_group in df.groupby('BU'):
                 .groupby('pmtu')['total_margin'].sum()
                 .idxmax() if not bu_group[bu_group['week_num'] == latest_week].empty else '—')
 
-    # BU 级别预算 = 各 pmtu 预算加总（PAC 用 pac_total_budget）
     bu_pmtu_list = [p for p in bu_group['pmtu'].unique() if pd.notna(p)]
     bu_budget = 0
     for p in bu_pmtu_list:
         if str(p).startswith('PAC-'):
-            bu_budget = pac_total_budget  # PAC 整体共用一个预算
+            bu_budget = pac_total_budget
             break
         else:
             bu_budget += budget_dict.get(p, 0)
 
-    if bu_budget > 0:
-        progress_pct = ytd_bu / bu_budget * 100
-        bar = progress_bar_html(progress_pct, f'{quarter_label}累计 {ytd_bu:,.0f} / 目标 {bu_budget:,.0f}')
-    else:
-        progress_pct = None
-        bar = f'<div style="font-size:12px;color:#95a5a6;margin-top:8px;">暂无BU目标数据</div>'
+    # 每个季度独立进度条（当前季度优先，历史季度显示进度条）
+    sorted_quarters = ([(current_year, current_quarter)] +
+                       [(yr, q) for (yr, q) in all_quarters if not (yr == current_year and q == current_quarter)])
+    bar = ''
+    for (yr, q) in sorted_quarters:
+        cum_series, qs_q, qe_q = quarter_data[(yr, q)]
+        try:
+            bu_q_cum = cum_series[cum_series.index.get_level_values('BU') == bu].sum()
+        except Exception:
+            bu_q_cum = 0
+        q_label = f"Q{q} {yr}（{qs_q.strftime('%m/%d')}~{qe_q.strftime('%m/%d')}）"
+        is_current_q = (yr == current_year and q == current_quarter)
+        if not is_current_q and bu_budget > 0:
+            q_pct = bu_q_cum / bu_budget * 100
+            bar += progress_bar_html(q_pct, f'{q_label} 累计 {bu_q_cum:,.0f} / 目标 {bu_budget:,.0f}')
+        else:
+            bar += f'<div style="font-size:12px;color:#95a5a6;margin-top:6px;">{q_label} 未设目标（累计 {bu_q_cum:,.0f}）</div>'
 
     bu_summary_html += f'''
     <div style="flex:1; min-width:220px; background:#fff; border-radius:10px; padding:16px 20px;
@@ -442,10 +501,10 @@ class _NpEncoder(_json.JSONEncoder):
 staging_data = {
     'latest_week': latest_week,
     'prev_week': prev_week,
-    'ytd_margin': ytd_margin,
+    'ytd_margin': float(ytd_margin),
     'pac_total_budget': pac_total_budget,
-    'pac_cumulative': pac_cumulative,
-    'pac_projected_quarter': pac_projected_quarter,
+    'pac_cumulative': float(pac_cumulative),
+    'pac_projected_quarter': float(pac_projected_quarter),
     'pac_projected_rate': pac_projected_rate,
     'budget_dict': budget_dict,
     'records': []
@@ -463,13 +522,18 @@ for _, row in report_df_raw.iterrows():
     wow_pct = ((current_margin - prev_margin_val) / prev_margin_val * 100) if prev_margin_val != 0 else None
 
     if pmtu.startswith('PAC-'):
-        algo = 'PAC整体均值'
+        algo = pac_algo
         projected = pac_projected_quarter
-    elif len(pmtu_weekly) >= 3:
-        projected, algo = smart_forecast(pmtu_weekly.tolist(), total_weeks_in_quarter)
     else:
-        projected = pmtu_weekly.mean() * total_weeks_in_quarter
-        algo = '均值'
+        pmtu_q2_w = q2_df[q2_df['pmtu'] == pmtu].groupby('week_num')['total_margin'].sum().sort_index()
+        if len(pmtu_q2_w) >= 3:
+            projected, algo = smart_forecast(pmtu_q2_w.tolist(), total_weeks_in_quarter)
+        elif len(pmtu_q2_w) > 0:
+            projected = pmtu_q2_w.sum() + pmtu_q2_w.mean() * max(total_weeks_in_quarter - len(pmtu_q2_w), 0)
+            algo = '当季均值'
+        else:
+            projected = cumulative
+            algo = '历史均值'
 
     budget = pac_total_budget if pmtu.startswith('PAC-') else budget_dict.get(pmtu, 0)
     staging_data['records'].append({
@@ -491,33 +555,33 @@ staging_json = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\staging_data.json"
 with open(staging_json, 'w', encoding='utf-8') as f:
     _json.dump(staging_data, f, ensure_ascii=False, indent=2, cls=_NpEncoder)
 
-# 保存为暂存 HTML（校验通过后由 finalize_report.py 重命名为正式文件）
+# 保存为暂存 HTML
+from datetime import datetime
 output_file = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\weekly_report_staging.html"
+report_gen_time = datetime.now().strftime('%Y-%m-%d %H:%M')
 with open(output_file, 'w', encoding='utf-8') as f:
     f.write(f"""
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>周度利润分析报表</title>
+    <title>W{latest_week:02d}利润分析报表</title>
     <style>
         * {{ box-sizing: border-box; }}
         body {{ font-family: 'Microsoft YaHei', '微软雅黑', 'SimHei', '黑体', Arial, sans-serif; margin: 40px 50px; background: #f5f7fa; color: #2c3e50; line-height: 1.6; }}
         h1 {{ font-size: 24px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; letter-spacing: 0.5px; }}
         h2 {{ font-size: 18px; font-weight: 600; color: #34495e; margin-top: 48px; margin-bottom: 16px; border-left: 4px solid #2e86c1; padding-left: 12px; }}
-        .report-meta {{ font-size: 12px; color: #999; margin-bottom: 20px; }}
         .model-note {{ font-size: 12px; color: #7f8c8d; background: #f4f6f7; border: 1px solid #e5e8ea; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; }}
         table {{ border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.08); margin-bottom: 28px; }}
         thead th {{ background-color: #2e86c1; color: #fff; padding: 12px 14px; text-align: left; font-weight: 600; font-size: 13.5px; }}
         td {{ padding: 11px 14px; border-bottom: 1px solid #eaecee; }}
         tbody tr:hover {{ background-color: #f0f4f8; }}
         .ai-section thead th {{ background-color: #5d6d7e; }}
-        .model-note {{ font-size: 12px; color: #7f8c8d; background: #f4f6f7; border: 1px solid #e5e8ea; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; }}
     </style>
 </head>
 <body>
-    <h1>周度利润分析报表</h1>
-    <p style="font-size:12px;color:#999;margin-bottom:20px;">报表更新至 {latest_date}</p>
+    <h1>W{latest_week:02d}利润分析报表</h1>
+    <p style="font-size:12px;color:#999;margin-bottom:20px;">报表刷新时间：{report_gen_time} &nbsp;|&nbsp; 数据统计截止：{latest_date}</p>
 
     <h2>各 BU {quarter_label} 进度总览</h2>
     {bu_summary_html}
@@ -526,7 +590,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
     {html_output}
 
     <h2>预测分析</h2>
-    <p class="model-note">📌 备注：预估完成率中所使用的预测模型（指数平滑 / 线性回归 / 加权移动均值）均由算法根据各 pmtu 历史数据的波动性与趋势特征自动选择，无需人工干预。PAC 系列统一采用整体均值法计算。</p>
+    <p class="model-note">📌 备注：预估完成率基于当前季度数据，不足3周时混合历史季度均值辅助预测。算法（指数平滑 / 线性回归 / 加权移动均值）根据数据波动性自动选择。当前季度暂无预算配置时显示"未设预算"。</p>
     {risk_html}
     <div class="ai-section">
     {ai_html}
@@ -537,5 +601,5 @@ with open(output_file, 'w', encoding='utf-8') as f:
 
 print(f"暂存报表已生成: {output_file}")
 print(f"校验数据已导出: {staging_json}")
-print(f"\n共 {len(report_df)} 行数据")
-print("\n[!] 请运行 /validate-report 进行数据校验，确认无误后再正式输出报表。")
+print(f"\\n共 {{len(report_df)}} 行数据")
+print("\\n[!] 请运行 /validate-report 进行数据校验，确认无误后再正式输出报表。")
