@@ -3,8 +3,10 @@ import json
 import numpy as np
 
 # 读取Excel文件
-file_path = r"C:\Users\YOUR_USERNAME\Desktop\agent_test_V0402.xlsx"
-df = pd.read_excel(file_path)
+file_path = r"C:\Users\YOUR_USERNAME\Desktop\YOUR_DATA_FILE.xlsx"
+df_all = pd.read_excel(file_path)
+df_all['accrual_date'] = pd.to_datetime(df_all['accrual_date'])
+df_all['week_num'] = df_all['week_number'].str.extract(r'(\d+)').astype(int)
 
 # 读取预算配置
 budget_file = r"C:\Users\YOUR_USERNAME\YOUR_WORKSPACE\pmtu_budget.json"
@@ -18,8 +20,36 @@ except FileNotFoundError:
 # PAC 整体预算（季度目标）
 pac_total_budget = 0  # TODO: 填入 PAC 季度目标预算金额
 
-# 提取周数
-df['week_num'] = df['week_number'].str.extract(r'(\d+)').astype(int)
+# ── 按 accrual_date 推算所有涉及的季度 ───────────────────────
+def quarter_bounds(date):
+    q = (date.month - 1) // 3 + 1
+    qs = pd.Timestamp(year=date.year, month=(q - 1) * 3 + 1, day=1)
+    qe = qs + pd.offsets.QuarterEnd(0)
+    return q, date.year, qs, qe
+
+latest_accrual = df_all['accrual_date'].max()
+current_quarter, current_year, current_qs, current_qe = quarter_bounds(latest_accrual)
+quarter_label = f"Q{current_quarter} {current_year}"
+
+# 找出数据中所有出现过的季度（按时间排序）
+df_all['_q'] = df_all['accrual_date'].apply(lambda d: (d.year, (d.month - 1) // 3 + 1))
+all_quarters = sorted(df_all['_q'].unique())  # [(year, q), ...]
+
+# 为每个历史季度计算 pmtu 累计 margin
+def quarter_cumulative(df, year, q):
+    qs = pd.Timestamp(year=year, month=(q - 1) * 3 + 1, day=1)
+    qe = qs + pd.offsets.QuarterEnd(0)
+    sub = df[(df['accrual_date'] >= qs) & (df['accrual_date'] <= qe)]
+    return sub.groupby(['BU', 'pmtu'])['total_margin'].sum(), qs, qe
+
+quarter_data = {}  # {(year, q): (cumulative_series, qs, qe)}
+for (yr, q) in all_quarters:
+    cum, qs, qe = quarter_cumulative(df_all, yr, q)
+    quarter_data[(yr, q)] = (cum, qs, qe)
+
+# 当前季度数据用于主表（周维度）
+df = df_all[(df_all['accrual_date'] >= current_qs) & (df_all['accrual_date'] <= current_qe)].copy()
+total_weeks_in_quarter = max(df['week_num'].max(), 13)
 
 # 按BU、pmtu、周数分组汇总
 grouped = df.groupby(['BU', 'pmtu', 'week_num', 'week_range'])['total_margin'].sum().reset_index()
@@ -27,9 +57,6 @@ grouped = df.groupby(['BU', 'pmtu', 'week_num', 'week_range'])['total_margin'].s
 # 获取所有周数并排序，以及全局统一的week_range映射
 all_weeks = sorted(grouped['week_num'].unique())
 week_range_map = grouped.drop_duplicates('week_num').set_index('week_num')['week_range'].to_dict()
-
-# 计算 PAC 整体累计
-pac_cumulative = grouped[grouped['pmtu'].str.startswith('PAC-', na=False)]['total_margin'].sum()
 
 latest_week = max(all_weeks)
 prev_week = latest_week - 1
@@ -39,6 +66,17 @@ week_compare_col = f'周比（W{latest_week:02d} vs W{prev_week:02d}）'
 
 # 构建报表
 report_data = []
+
+# 动态生成各季度进度列名（含日期区间）
+progress_cols = []
+for (yr, q) in all_quarters:
+    _, qs, qe = quarter_data[(yr, q)]
+    col = f"Q{q} {yr} 进度（{qs.strftime('%m/%d')}~{qe.strftime('%m/%d')}）"
+    progress_cols.append(((yr, q), col))
+
+# 当前季度 PAC 整体累计（用于 PAC 进度计算）
+cur_pac_cum_series, _, _ = quarter_data[(current_year, current_quarter)]
+pac_cumulative = cur_pac_cum_series[cur_pac_cum_series.index.get_level_values('pmtu').str.startswith('PAC-', na=False)].sum() if not cur_pac_cum_series.empty else 0
 
 for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
     row = {'BU': bu, 'pmtu': pmtu}
@@ -52,7 +90,7 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
     current_margin = margins[latest_week]
     row[margin_col] = f"{current_margin:,.0f}"
 
-    # 周比：百分比 + 两周数据
+    # 周比
     prev_margin = margins.get(prev_week, 0)
     if prev_margin != 0:
         week_change = ((current_margin - prev_margin) / prev_margin) * 100
@@ -60,20 +98,33 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
     else:
         row[week_compare_col] = f"N/A（W{latest_week:02d}: {current_margin:,.0f} vs W{prev_week:02d}: 0）"
 
-    # 累计进度
-    cumulative = sum(margins.values())
+    # 各季度进度列
+    progress_pct = None  # 取当前季度的进度用于着色
+    for (yr, q), col in progress_cols:
+        cum_series, _, _ = quarter_data[(yr, q)]
+        try:
+            cumulative = cum_series.loc[(bu, pmtu)]
+        except KeyError:
+            cumulative = 0
 
-    if pmtu.startswith('PAC-'):
-        progress_pct = (pac_cumulative / pac_total_budget) * 100
-        row['进度'] = f"{progress_pct:.1f}%（PAC整体: {pac_cumulative:,.0f}/{pac_total_budget:,.0f}）"
-    else:
-        target_value = budget_dict.get(pmtu, 0)
-        if target_value > 0:
-            progress_pct = (cumulative / target_value) * 100
-            row['进度'] = f"{progress_pct:.1f}%（{cumulative:,.0f}/{target_value:,.0f}）"
+        is_current = (yr == current_year and q == current_quarter)
+
+        if pmtu.startswith('PAC-'):
+            # PAC 用整体累计
+            pac_q_cum = cum_series[cum_series.index.get_level_values('pmtu').str.startswith('PAC-', na=False)].sum() if not cum_series.empty else 0
+            pct = (pac_q_cum / pac_total_budget * 100) if pac_total_budget > 0 else None
+            row[col] = f"{pct:.1f}%（PAC整体: {pac_q_cum:,.0f}/{pac_total_budget:,.0f}）" if pct is not None else f"累计: {pac_q_cum:,.0f}"
         else:
-            progress_pct = None
-            row['进度'] = f"未设置预算（累计: {cumulative:,.0f}）"
+            target_value = budget_dict.get(pmtu, 0)
+            if target_value > 0:
+                pct = cumulative / target_value * 100
+                row[col] = f"{pct:.1f}%（{cumulative:,.0f}/{target_value:,.0f}）"
+            else:
+                pct = None
+                row[col] = f"未设目标（累计: {cumulative:,.0f}）"
+
+        if is_current:
+            progress_pct = pct
 
     row['_progress_pct'] = progress_pct
     row['_current_margin'] = current_margin
@@ -82,7 +133,8 @@ for (bu, pmtu), group in grouped.groupby(['BU', 'pmtu']):
 # 转换为DataFrame，按BU分组后按margin降序排列
 report_df_raw = pd.DataFrame(report_data)
 report_df_raw = report_df_raw.sort_values(['BU', '_current_margin'], ascending=[True, False])
-report_df = report_df_raw[['BU', 'pmtu', margin_col, week_compare_col, '进度']].reset_index(drop=True)
+all_progress_cols = [col for _, col in progress_cols]
+report_df = report_df_raw[['BU', 'pmtu', margin_col, week_compare_col] + all_progress_cols].reset_index(drop=True)
 
 # 进度颜色预警
 def color_progress(pct):
@@ -95,13 +147,13 @@ def color_progress(pct):
     else:
         return 'background-color: #e9f7ef; color: #1e8449;'
 
-def build_colored_table(df, progress_pcts):
+def build_colored_table(df, progress_pcts, progress_col_names):
     headers = ''.join([f'<th>{col}</th>' for col in df.columns])
     rows_html = ''
     for i, (_, row) in enumerate(df.iterrows()):
         cells = ''
         for col in df.columns:
-            if col == '进度':
+            if col in progress_col_names:
                 style = color_progress(progress_pcts[i])
                 cells += f'<td style="{style}">{row[col]}</td>'
             else:
@@ -110,7 +162,7 @@ def build_colored_table(df, progress_pcts):
     return f'<table><thead><tr>{headers}</tr></thead><tbody>{rows_html}</tbody></table>'
 
 progress_pcts = report_df_raw['_progress_pct'].tolist()
-html_output = build_colored_table(report_df, progress_pcts)
+html_output = build_colored_table(report_df, progress_pcts, all_progress_cols)
 
 # 计算YTD数据
 ytd_margin = df['total_margin'].sum()
@@ -356,7 +408,7 @@ for bu, bu_group in df.groupby('BU'):
 
     if bu_budget > 0:
         progress_pct = ytd_bu / bu_budget * 100
-        bar = progress_bar_html(progress_pct, f'Q1累计 {ytd_bu:,.0f} / 目标 {bu_budget:,.0f}')
+        bar = progress_bar_html(progress_pct, f'{quarter_label}累计 {ytd_bu:,.0f} / 目标 {bu_budget:,.0f}')
     else:
         progress_pct = None
         bar = f'<div style="font-size:12px;color:#95a5a6;margin-top:8px;">暂无BU目标数据</div>'
@@ -467,7 +519,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
     <h1>周度利润分析报表</h1>
     <p style="font-size:12px;color:#999;margin-bottom:20px;">报表更新至 {latest_date}</p>
 
-    <h2>各 BU Q1 进度总览</h2>
+    <h2>各 BU {quarter_label} 进度总览</h2>
     {bu_summary_html}
 
     <h2>Margin 分析明细</h2>
