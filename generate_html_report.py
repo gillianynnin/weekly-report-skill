@@ -464,7 +464,7 @@ for bu, bu_group in df.groupby('BU'):
             bu_q_cum = cum_series[cum_series.index.get_level_values('BU') == bu].sum()
         except Exception:
             bu_q_cum = 0
-        q_label = f"Q{q} {yr}（{qs_q.strftime('%m/%d')}~{qe_q.strftime('%m/%d')}）"
+        q_label = f"Q{q}"
         is_current_q = (yr == current_year and q == current_quarter)
         if not is_current_q and bu_budget > 0:
             q_pct = bu_q_cum / bu_budget * 100
@@ -583,7 +583,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
     <h1>W{latest_week:02d}利润分析报表</h1>
     <p style="font-size:12px;color:#999;margin-bottom:20px;">报表刷新时间：{report_gen_time} &nbsp;|&nbsp; 数据统计截止：{latest_date}</p>
 
-    <h2>各 BU {quarter_label} 进度总览</h2>
+    <h2>2026各BU进度总览</h2>
     {bu_summary_html}
 
     <h2>Margin 分析明细</h2>
