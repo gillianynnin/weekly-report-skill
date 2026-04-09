@@ -51,10 +51,16 @@ for rec in staging['records']:
         wow_str = f"N/A（W{latest_week:02d}: {cur:,.0f} vs W{prev_week:02d}: 0）"
 
     if pmtu.startswith('PAC-'):
-        progress_str = f"{pct:.1f}%（PAC整体: {pac_cumulative:,.0f}/{pac_total_budget:,.0f}）"
+        if pct is not None:
+            progress_str = f"{pct:.1f}%（PAC整体: {pac_cumulative:,.0f}/{pac_total_budget:,.0f}）"
+        else:
+            progress_str = f"未设目标（累计: {pac_cumulative:,.0f}）"
     elif budget_dict.get(pmtu, 0) > 0:
         budget = budget_dict[pmtu]
-        progress_str = f"{pct:.1f}%（{ytd:,.0f}/{budget:,.0f}）"
+        if pct is not None:
+            progress_str = f"{pct:.1f}%（{ytd:,.0f}/{budget:,.0f}）"
+        else:
+            progress_str = f"未设目标（累计: {ytd:,.0f}）"
     else:
         progress_str = f"未设置预算（累计: {ytd:,.0f}）"
 

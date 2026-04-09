@@ -252,7 +252,7 @@ else:
     pac_projected_quarter = pac_q1_avg * total_weeks_in_quarter
     pac_algo = '历史季度均值'
 
-pac_projected_rate = (pac_projected_quarter / pac_total_budget * 100) if pac_total_budget > 0 else None
+pac_projected_rate = None  # Q2 暂无预算
 
 pa_grouped = df.groupby(['BU', 'pmtu', 'pa_name', 'week_num'])['total_margin'].sum().reset_index()
 ai_rows = []
@@ -305,7 +305,7 @@ for (bu, pmtu), group in pa_grouped.groupby(['BU', 'pmtu']):
         pmtu_q2_weekly = q2_df[q2_df['pmtu'] == pmtu].groupby('week_num')['total_margin'].sum().sort_index()
         pmtu_weeks_elapsed = len(pmtu_q2_weekly)
         pmtu_weeks_remaining = max(total_weeks_in_quarter - pmtu_weeks_elapsed, 0)
-        budget = budget_dict.get(pmtu, 0)
+        budget = 0  # Q2 暂无预算
 
         if prev_q:
             pmtu_q1_weekly = df_all[(df_all['accrual_date'] >= prev_qs) & (df_all['accrual_date'] <= prev_qe) &
@@ -590,7 +590,7 @@ with open(output_file, 'w', encoding='utf-8') as f:
     {html_output}
 
     <h2>预测分析</h2>
-    <p class="model-note">📌 备注：预估完成率基于当前季度数据，不足3周时混合历史季度均值辅助预测。算法（指数平滑 / 线性回归 / 加权移动均值）根据数据波动性自动选择。当前季度暂无预算配置时显示"未设预算"。</p>
+    <p class="model-note">📌 备注：<br>① 预估完成率：所使用的预测模型（指数平滑 / 线性回归 / 加权移动均值 等）均由算法根据各 pmtu 历史数据的波动性与趋势特征自动选择，无需人工干预。PAC 系列统一采用整体均值法计算。当前季度暂无预算配置时显示"未设预算"。<br>② 前三波动 PA：绝对变化量 ＞ 100 方进入候选，综合绝对变化量（权重 70%）与百分比变化（权重 30%）评分后取前三。</p>
     {risk_html}
     <div class="ai-section">
     {ai_html}
