@@ -243,21 +243,47 @@ def extract_rate(forecast_str):
     m = _re.search(r'预估完成率\s*([\d.]+)%', forecast_str)
     return float(m.group(1)) if m else None
 
+weeks_elapsed = latest_week
+weeks_remaining = total_weeks_in_quarter - weeks_elapsed
+
 risk_rows = []
 for row in ai_rows:
+    pmtu = row['pmtu']
     rate = extract_rate(row['预估完成率'])
-    if rate is not None and rate < 80:
-        level = '🔴 高风险' if rate < 50 else '🟡 关注'
-        risk_rows.append({'BU': row['BU'], 'pmtu': row['pmtu'], '预估完成率': f"{rate:.1f}%", '风险等级': level})
+    if rate is None:
+        continue
+    # 获取该 pmtu 实际数据周数
+    if pmtu.startswith('PAC-'):
+        pmtu_elapsed = pac_weeks_elapsed
+    else:
+        pmtu_elapsed = len(df[df['pmtu'] == pmtu]['week_num'].unique())
+
+    # 剩余周数紧迫时升级风险
+    if rate < 50 or (rate < 80 and weeks_remaining <= 3):
+        level = '🔴 高风险'
+    elif rate < 80:
+        level = '🟡 关注'
+    else:
+        continue
+
+    urgency = f'<span style="color:#e74c3c;font-weight:600;">仅剩 {weeks_remaining} 周</span>' if weeks_remaining <= 3 else f'剩余 {weeks_remaining} 周'
+    period_str = f'已过 W{pmtu_elapsed:02d} / 共{total_weeks_in_quarter}周，{urgency}'
+    risk_rows.append({
+        'BU': row['BU'], 'pmtu': pmtu,
+        '预估完成率': rate,
+        '进度周期': period_str,
+        '风险等级': level
+    })
 
 if risk_rows:
-    risk_rows_sorted = sorted(risk_rows, key=lambda x: float(x['预估完成率'].replace('%', '')))
+    risk_rows_sorted = sorted(risk_rows, key=lambda x: x['预估完成率'])
     risk_items = ''.join([
         f'''<tr style="background:{'#fff5f5' if r['风险等级'].startswith('🔴') else '#fffbf0'};">
             <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['风险等级']}</td>
             <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['BU']}</td>
             <td style="padding:8px 14px;border-bottom:1px solid #eee;">{r['pmtu']}</td>
-            <td style="padding:8px 14px;border-bottom:1px solid #eee;font-weight:600;color:{'#e74c3c' if r['风险等级'].startswith('🔴') else '#f39c12'};">{r['预估完成率']}</td>
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;font-weight:600;color:{'#e74c3c' if r['风险等级'].startswith('🔴') else '#f39c12'};">{r['预估完成率']:.1f}%</td>
+            <td style="padding:8px 14px;border-bottom:1px solid #eee;font-size:12px;color:#555;">{r['进度周期']}</td>
         </tr>'''
         for r in risk_rows_sorted
     ])
@@ -272,11 +298,12 @@ if risk_rows:
                     <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">BU</th>
                     <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">pmtu</th>
                     <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">预估完成率</th>
+                    <th style="padding:8px 14px;text-align:left;color:#555;font-weight:600;">进度周期</th>
                 </tr>
             </thead>
             <tbody>{risk_items}</tbody>
         </table>
-        <div style="font-size:11px;color:#999;margin-top:10px;">🔴 高风险：预估完成率 &lt; 50%　　🟡 关注：50% ≤ 预估完成率 &lt; 80%</div>
+        <div style="font-size:11px;color:#999;margin-top:10px;">🔴 高风险：完成率 &lt; 50%，或完成率 &lt; 80% 且剩余 ≤ 3 周　　🟡 关注：50% ≤ 完成率 &lt; 80%</div>
     </div>'''
 else:
     risk_html = '<div style="font-size:13px;color:#27ae60;margin-bottom:16px;">✅ 所有 pmtu 预估完成率均 ≥ 80%，暂无风险项。</div>'
