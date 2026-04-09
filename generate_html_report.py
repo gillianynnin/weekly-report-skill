@@ -470,10 +470,10 @@ with open(output_file, 'w', encoding='utf-8') as f:
     <h2>各 BU Q1 进度总览</h2>
     {bu_summary_html}
 
-    <h2>利润分析明细</h2>
+    <h2>Margin 分析明细</h2>
     {html_output}
 
-    <h2>AI 视角分析</h2>
+    <h2>预测分析</h2>
     <p class="model-note">📌 备注：预估完成率中所使用的预测模型（指数平滑 / 线性回归 / 加权移动均值）均由算法根据各 pmtu 历史数据的波动性与趋势特征自动选择，无需人工干预。PAC 系列统一采用整体均值法计算。</p>
     {risk_html}
     <div class="ai-section">
