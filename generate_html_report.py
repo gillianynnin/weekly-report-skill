@@ -47,9 +47,9 @@ for (yr, q) in all_quarters:
     cum, qs, qe = quarter_cumulative(df_all, yr, q)
     quarter_data[(yr, q)] = (cum, qs, qe)
 
-# 当前季度数据用于主表（周维度）
-df = df_all[(df_all['accrual_date'] >= current_qs) & (df_all['accrual_date'] <= current_qe)].copy()
-total_weeks_in_quarter = max(df['week_num'].max(), 13)
+# 主表用全量数据（按 week_num 分组，不按季度过滤）
+df = df_all.copy()
+total_weeks_in_quarter = 13  # 季度总周数固定13周用于预测
 
 # 按BU、pmtu、周数分组汇总
 grouped = df.groupby(['BU', 'pmtu', 'week_num', 'week_range'])['total_margin'].sum().reset_index()
